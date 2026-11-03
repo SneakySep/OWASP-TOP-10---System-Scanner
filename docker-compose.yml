@@ -1,0 +1,34 @@
+services:
+  backend:
+    build: ./backend
+    container_name: sast-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - SCAN_DIR=/tmp/scans
+      - SEMGREP_SEND_METRICS=off
+    volumes:
+      - semgrep_cache:/home/appuser/.semgrep
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Baked into the client bundle at build time; must be a URL reachable
+        # from the host browser, not the Docker-internal hostname.
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    container_name: sast-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: sast-network
+    driver: bridge
+
+volumes:
+  semgrep_cache:

@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* "Milk Ink" theme — milk-white paper, black outlines, black actions. */
+/* Values are RGB triplets so Tailwind can apply alpha (border-ink/20). */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --bg: 250 250 245; /* #FAFAF5 milk white */
+  --surface: 255 255 255; /* #FFFFFF */
+  --ink: 17 17 16; /* #111110 near-black */
+  --muted: 110 109 102; /* #6E6D66 warm gray */
+  --faint: 236 235 227; /* #ECEBE3 warm paper gray */
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 14 14 12; /* #0E0E0C */
+  --surface: 23 23 21; /* #171715 */
+  --ink: 245 244 236; /* #F5F4EC milk white */
+  --muted: 166 164 154; /* #A6A49A */
+  --faint: 38 37 33; /* #262521 */
+  color-scheme: dark;
+}
+
+@layer base {
+  body {
+    background-color: rgb(var(--bg));
+    color: rgb(var(--ink));
+  }
+
+  ::selection {
+    background-color: rgb(var(--ink));
+    color: rgb(var(--bg));
+  }
+
+  /* Visible keyboard focus everywhere, in the theme's ink color. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--ink));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
