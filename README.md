@@ -55,9 +55,10 @@ Junk folders (`node_modules`, `.git`, `__pycache__`, `.venv`, `venv`, `.next`,
 
 ## API
 
-`POST /api/scan` — multipart form field `file` containing a `.zip`
-(folder/file selections are zipped client-side first, so this contract is
-unchanged).
+`POST /api/scan` — multipart form field `file` containing a `.zip`, plus an
+optional `ruleset` field (`p/owasp-top-ten`, the default, or
+`p/security-audit`; anything else is rejected with 400). Folder/file
+selections are zipped client-side first, so the archive contract is unchanged.
 Returns enriched JSON:
 
 ```json
@@ -77,13 +78,18 @@ Returns enriched JSON:
           "code_snippet": "...",
           "severity": "Critical",
           "owasp_category": "A03:2021-Injection",
-          "remediation": { "title": "...", "summary": "...", "steps": ["..."], "references": ["..."] }
+          "remediation": { "title": "...", "summary": "...", "steps": ["..."],
+                            "references": [{ "title": "...", "url": "https://..." }] }
         }
       ]
     }
   ]
 }
 ```
+
+`GET /api/remediation` returns the same OWASP knowledge base as a browsable
+catalog: `{ "count": 10, "categories": [{ "category": "...", "title": "...",
+"summary": "...", "steps": ["..."], "references": [{ "title", "url" }] }] }`.
 
 ## Suggested fixes and `/api/fix`
 
@@ -105,8 +111,8 @@ explanation and a confidence level:
 - `confidence: "medium"` — needs a human decision (allow-list placeholders,
   PBKDF2 migration, `shlex.split` semantics).
 
-`POST /api/fix` takes the same multipart `.zip` as `/api/scan` and streams
-back `fixed-source.zip` with every applicable suggested fix applied. Original
+`POST /api/fix` takes the same multipart `.zip` and optional `ruleset` as
+`/api/scan` and streams back `fixed-source.zip` with every applicable suggested fix applied. Original
 uploads are never modified; the dashboard only ever edits a downloaded copy.
 The archive contains a `_FIX_REPORT.json`:
 

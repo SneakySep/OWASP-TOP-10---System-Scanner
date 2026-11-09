@@ -18,11 +18,16 @@ const links = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  onNavigate,
+}: {
+  /** Called after a link is clicked — used to close the mobile drawer. */
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-ink bg-surface">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-ink bg-surface">
       <div className="flex items-center gap-2 px-6 py-6">
         <ShieldCheck className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
         <div>
@@ -38,6 +43,8 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={onNavigate}
+              aria-current={active ? "page" : undefined}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                 active
                   ? "bg-ink text-bg"

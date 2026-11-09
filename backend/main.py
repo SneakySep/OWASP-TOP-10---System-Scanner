@@ -22,11 +22,11 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from autofix import apply_edits, compute_suggested_fix
-from remediation import get_remediation
+from remediation import REMEDIATION_NOTES, get_remediation
 
 app = FastAPI(title="SAST Scanner API", version="1.0.0")
 
@@ -44,6 +44,14 @@ app.add_middleware(
 SCAN_DIR = Path(os.environ.get("SCAN_DIR", "/tmp/scans"))
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 ALLOWED_EXTENSIONS = {".zip"}
+
+# Semgrep configs a client may ask for. Must stay in sync with
+# frontend/lib/api.ts — never pass an arbitrary string to `--config`.
+ALLOWED_RULESETS = {
+    "p/owasp-top-ten": "OWASP Top 10",
+    "p/security-audit": "Semgrep security-audit",
+}
+DEFAULT_RULESET = "p/owasp-top-ten"
 
 # Semgrep severity -> dashboard severity bucket.
 SEVERITY_MAP = {
@@ -89,12 +97,23 @@ def validate_zip(filename: str, data: bytes) -> None:
         raise HTTPException(status_code=400, detail="File is not a valid zip archive.")
 
 
-def run_semgrep(scan_dir: Path) -> dict:
+def validate_ruleset(ruleset: str) -> str:
+    """Allow only known Semgrep configs; anything else is a client bug."""
+    if ruleset not in ALLOWED_RULESETS:
+        allowed = ", ".join(sorted(ALLOWED_RULESETS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported ruleset. Choose one of: {allowed}.",
+        )
+    return ruleset
+
+
+def run_semgrep(scan_dir: Path, ruleset: str = DEFAULT_RULESET) -> dict:
     """Run Semgrep against the extracted tree and return parsed JSON results."""
     results_path = scan_dir / "results.json"
     command = [
         "semgrep", "scan",
-        "--config", "p/owasp-top-ten",
+        "--config", ruleset,
         "--json",
         "--output", str(results_path),
         str(scan_dir),
@@ -248,9 +267,9 @@ def collect_file_lines(root: Path) -> dict[str, list[str]]:
     return out
 
 
-def scan_extracted(extract_dir: Path) -> dict:
+def scan_extracted(extract_dir: Path, ruleset: str = DEFAULT_RULESET) -> dict:
     """Scan an extracted tree and return the enriched dashboard payload."""
-    raw = run_semgrep(extract_dir)
+    raw = run_semgrep(extract_dir, ruleset)
     return enrich(raw, collect_file_lines(extract_dir))
 
 
@@ -263,8 +282,27 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/api/remediation")
+def remediation_catalog() -> dict:
+    """Browsable OWASP Top 10 knowledge base for the /remediation page.
+
+    Exposes the same notes that are attached to individual findings, so the
+    frontend does not have to duplicate the guidance.
+    """
+    categories = [
+        {"category": category, **note}
+        for category, note in REMEDIATION_NOTES.items()
+    ]
+    categories.sort(key=lambda entry: entry["category"])
+    return {"count": len(categories), "categories": categories}
+
+
 @app.post("/api/scan")
-async def scan(file: UploadFile = File(...)) -> dict:
+async def scan(
+    file: UploadFile = File(...),
+    ruleset: str = Form(DEFAULT_RULESET),
+) -> dict:
+    validate_ruleset(ruleset)
     data = await file.read()
     validate_zip(file.filename or "", data)
 
@@ -284,14 +322,17 @@ async def scan(file: UploadFile = File(...)) -> dict:
             raise HTTPException(status_code=400, detail="Corrupt zip archive.") from exc
 
         # 2. Run the scan and return the enriched payload.
-        return scan_extracted(extract_dir)
+        return scan_extracted(extract_dir, ruleset)
     finally:
         # Aggressive cleanup: the temp directory never outlives this request.
         shutil.rmtree(scan_dir, ignore_errors=True)
 
 
 @app.post("/api/fix")
-async def fix(file: UploadFile = File(...)) -> Response:
+async def fix(
+    file: UploadFile = File(...),
+    ruleset: str = Form(DEFAULT_RULESET),
+) -> Response:
     """Re-scan an upload and stream back fixed-source.zip with fixes applied.
 
     Same zip validation as /api/scan. The response archive contains the
@@ -299,6 +340,7 @@ async def fix(file: UploadFile = File(...)) -> Response:
     auto-fixed and which were left untouched (with reasons). Original uploads
     are never modified.
     """
+    validate_ruleset(ruleset)
     data = await file.read()
     validate_zip(file.filename or "", data)
 
@@ -315,7 +357,7 @@ async def fix(file: UploadFile = File(...)) -> Response:
         except shutil.ReadError as exc:
             raise HTTPException(status_code=400, detail="Corrupt zip archive.") from exc
 
-        payload = scan_extracted(extract_dir)
+        payload = scan_extracted(extract_dir, ruleset)
         file_lines = collect_file_lines(extract_dir)
 
         # Group candidate fixes per file in report order.

@@ -25,8 +25,14 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Write integration tests that assert a low-privilege user cannot reach privileged endpoints.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Authorization",
-            "OWASP Top 10 2021: A01 Broken Access Control",
+            {
+                "title": "OWASP Cheat Sheet: Authorization",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Top 10 2021: A01 Broken Access Control",
+                "url": "https://owasp.org/Top10/A01_2021-Broken_Access_Control/",
+            },
         ],
     },
     "A02:2021-Cryptographic Failures": {
@@ -46,8 +52,14 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Rotate keys and certificates on a schedule and document the rotation procedure.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Cryptographic Storage",
-            "OWASP Cheat Sheet: Password Storage",
+            {
+                "title": "OWASP Cheat Sheet: Cryptographic Storage",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Cheat Sheet: Password Storage",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html",
+            },
         ],
     },
     "A03:2021-Injection": {
@@ -67,9 +79,18 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Add automated tests with payloads like ' OR 1=1 -- and $(id) against every sink.",
         ],
         "references": [
-            "OWASP Cheat Sheet: SQL Injection Prevention",
-            "OWASP Cheat Sheet: OS Command Injection Defense",
-            "OWASP Cheat Sheet: Cross Site Scripting Prevention",
+            {
+                "title": "OWASP Cheat Sheet: SQL Injection Prevention",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Cheat Sheet: OS Command Injection Defense",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Cheat Sheet: Cross Site Scripting Prevention",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html",
+            },
         ],
     },
     "A04:2021-Insecure Design": {
@@ -88,8 +109,14 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Segment critical components so a compromise in one tier cannot pivot freely.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Threat Modeling",
-            "OWASP ASVS 4.0 Chapter 1: Architecture",
+            {
+                "title": "OWASP Cheat Sheet: Threat Modeling",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Threat_Modeling_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP ASVS 4.0 Chapter 1: Architecture",
+                "url": "https://owasp.org/www-project-application-security-verification-standard/",
+            },
         ],
     },
     "A05:2021-Security Misconfiguration": {
@@ -107,7 +134,10 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Automate configuration drift detection and review IaC changes in pull requests.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Configuration and Deployment Management",
+            {
+                "title": "OWASP Top 10 2021: A05 Security Misconfiguration",
+                "url": "https://owasp.org/Top10/A05_2021-Security_Misconfiguration/",
+            },
         ],
     },
     "A06:2021-Vulnerable and Outdated Components": {
@@ -124,7 +154,10 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Patch runtime images regularly: rebuild containers on fresh base images each release.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Vulnerable Dependency Management",
+            {
+                "title": "OWASP Cheat Sheet: Vulnerable Dependency Management",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Vulnerable_Dependency_Management_Cheat_Sheet.html",
+            },
         ],
     },
     "A07:2021-Identification and Authentication Failures": {
@@ -142,8 +175,14 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Log authentication events and alert on anomalous patterns (impossible travel, credential stuffing waves).",
         ],
         "references": [
-            "OWASP Cheat Sheet: Authentication",
-            "OWASP Cheat Sheet: Session Management",
+            {
+                "title": "OWASP Cheat Sheet: Authentication",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Cheat Sheet: Session Management",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+            },
         ],
     },
     "A08:2021-Software and Data Integrity Failures": {
@@ -160,8 +199,14 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Validate integrity of serialized state (HMAC) before trusting client-submitted blobs.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Deserialization",
-            "OWASP Top 10 2021: A08 Software and Data Integrity Failures",
+            {
+                "title": "OWASP Cheat Sheet: Deserialization",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html",
+            },
+            {
+                "title": "OWASP Top 10 2021: A08 Software and Data Integrity Failures",
+                "url": "https://owasp.org/Top10/A08_2021-Software_and_Data_Integrity_Failures/",
+            },
         ],
     },
     "A09:2021-Security Logging and Monitoring Failures": {
@@ -178,7 +223,10 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Adopt an incident response plan and test it; define retention per compliance requirements.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Logging",
+            {
+                "title": "OWASP Cheat Sheet: Logging",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html",
+            },
         ],
     },
     "A10:2021-Server-Side Request Forgery (SSRF)": {
@@ -197,7 +245,10 @@ REMEDIATION_NOTES: dict[str, dict] = {
             "Never send raw server responses from the fetch back to the client.",
         ],
         "references": [
-            "OWASP Cheat Sheet: Server Side Request Forgery Prevention",
+            {
+                "title": "OWASP Cheat Sheet: Server Side Request Forgery Prevention",
+                "url": "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html",
+            },
         ],
     },
 }
@@ -216,7 +267,16 @@ DEFAULT_REMEDIATION = {
         "Apply the framework's recommended safe API for this operation.",
         "Add a regression test covering the malicious input case.",
     ],
-    "references": ["OWASP Top 10 2021", "Semgrep documentation"],
+    "references": [
+        {
+            "title": "OWASP Top 10 2021",
+            "url": "https://owasp.org/Top10/",
+        },
+        {
+            "title": "Semgrep documentation",
+            "url": "https://semgrep.dev/docs/",
+        },
+    ],
 }
 
 

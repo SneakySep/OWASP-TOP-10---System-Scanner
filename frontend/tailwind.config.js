@@ -13,6 +13,16 @@ module.exports = {
         muted: "rgb(var(--muted) / <alpha-value>)", // secondary text
         faint: "rgb(var(--faint) / <alpha-value>)", // hover fills, code chips, gutters
       },
+      keyframes: {
+        // Sliding bar for work with unknown duration (scan, fix, re-scan).
+        indeterminate: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
+      },
+      animation: {
+        indeterminate: "indeterminate 1.4s ease-in-out infinite",
+      },
     },
   },
   plugins: [],

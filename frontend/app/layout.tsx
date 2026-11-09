@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "@/components/Sidebar";
+import AppShell from "@/components/AppShell";
+import { ScanSessionProvider } from "@/lib/scanSession";
 
 export const metadata: Metadata = {
   title: "SAST Scanner",
@@ -19,9 +20,10 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="flex min-h-screen bg-bg text-ink antialiased">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto p-8">{children}</main>
+      <body className="min-h-screen bg-bg text-ink antialiased">
+        <AppShell>
+          <ScanSessionProvider>{children}</ScanSessionProvider>
+        </AppShell>
       </body>
     </html>
   );
