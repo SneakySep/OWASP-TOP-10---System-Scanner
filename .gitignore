@@ -38,3 +38,9 @@ Desktop.ini
 # and generated scan output)
 .perch/
 scan-result.json
+
+# Freebuff project state (local tooling)
+/.freebuff/
+
+# Local scan-history database, if SCAN_DB is pointed inside the repo
+*.db

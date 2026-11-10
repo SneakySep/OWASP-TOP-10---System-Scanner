@@ -6,9 +6,12 @@ services:
       - "8000:8000"
     environment:
       - SCAN_DIR=/tmp/scans
+      # Scan history survives container restarts via the volume below.
+      - SCAN_DB=/data/history.db
       - SEMGREP_SEND_METRICS=off
     volumes:
       - semgrep_cache:/home/appuser/.semgrep
+      - scan_history:/data
     restart: unless-stopped
 
   frontend:
@@ -31,4 +34,5 @@ networks:
     driver: bridge
 
 volumes:
+  scan_history:
   semgrep_cache:

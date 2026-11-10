@@ -38,7 +38,10 @@ export default function Sidebar({
 
       <nav className="flex-1 space-y-1 px-3">
         {links.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href;
+          // Stored reports live under /scan/<id>; keep History highlighted.
+          const active =
+            pathname === href ||
+            (href === "/history" && pathname.startsWith("/scan/"));
           return (
             <Link
               key={href}

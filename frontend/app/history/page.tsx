@@ -13,9 +13,9 @@ export default function HistoryPage() {
         <History className="h-6 w-6" /> Scan History
       </h2>
       <p className="mt-2 text-sm text-muted">
-        Scans are not persisted in a database — each one runs in an isolated
-        temporary directory. The most recent report is kept in this browser
-        session so you can navigate away and come back to it.
+        Every scan is stored on the backend with its findings and severity
+        breakdown. The newest scan of the same target is used as the baseline,
+        so each report shows what is new and what was fixed since last time.
       </p>
       <HistoryList />
     </div>

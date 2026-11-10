@@ -6,6 +6,8 @@
  * browser. Everything is read at request time so changes apply immediately.
  */
 
+import type { ScanPayload } from "@/components/ScanResults";
+
 export const DEFAULT_API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -85,4 +87,45 @@ export function getRuleset(): string {
 
 export function setRuleset(value: string | null): void {
   write(RULESET_KEY, value && isKnownRuleset(value) ? value : null);
+}
+
+/** Metadata for one stored scan, as returned by `GET /api/scans`. */
+export type ScanSummary = {
+  scan_id: string;
+  label: string;
+  ruleset: string;
+  /** Unix seconds. */
+  created_at: number;
+  total_findings: number;
+  severity_counts: ScanPayload["severity_counts"];
+  /** Findings that were not in the previous scan of the same target. */
+  new_findings: number;
+  fixed_findings: number;
+};
+
+/** One stored scan plus its full report payload (the permalink shape). */
+export type ScanDetail = ScanSummary & {
+  fingerprint: string;
+  payload: ScanPayload;
+};
+
+/** Server-side scan history, newest first. */
+export async function fetchScans(signal?: AbortSignal): Promise<ScanSummary[]> {
+  const res = await fetch(apiUrl("/api/scans"), { signal });
+  if (!res.ok) throw new Error(`History request failed (HTTP ${res.status}).`);
+  const data = (await res.json()) as { scans?: ScanSummary[] };
+  return data.scans ?? [];
+}
+
+/** One stored report, in the same shape a live scan returns. */
+export async function fetchScan(
+  id: string,
+  signal?: AbortSignal
+): Promise<ScanDetail> {
+  const res = await fetch(apiUrl(`/api/scans/${encodeURIComponent(id)}`), {
+    signal,
+  });
+  if (res.status === 404) throw new Error("That report is no longer stored.");
+  if (!res.ok) throw new Error(`Report request failed (HTTP ${res.status}).`);
+  return (await res.json()) as ScanDetail;
 }

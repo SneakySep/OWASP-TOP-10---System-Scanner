@@ -1,0 +1,5 @@
+# Test-only dependencies. FastAPI, python-multipart and semgrep are runtime
+# dependencies (see backend/Dockerfile); install semgrep separately to run the
+# fixture integration tests — without it those tests skip.
+pytest>=8.0
+httpx>=0.27

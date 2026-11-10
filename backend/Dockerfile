@@ -17,15 +17,16 @@ RUN pip install --no-cache-dir \
     python-multipart \
     semgrep
 
-# Non-root user with write access to the scan directory and the semgrep
-# cache mount point (must exist with correct ownership in the image, or the
-# named volume mountpoint is created root-owned and semgrep can't write).
+# Non-root user with write access to the scan directory, the history volume
+# and the semgrep cache mount point (they must exist with correct ownership in
+# the image, or the named volume mountpoint is created root-owned and the app
+# can't write).
 RUN useradd --create-home --shell /bin/bash appuser \
-    && mkdir -p /tmp/scans /home/appuser/.semgrep \
-    && chown -R appuser:appuser /tmp/scans /home/appuser
+    && mkdir -p /tmp/scans /data /home/appuser/.semgrep \
+    && chown -R appuser:appuser /tmp/scans /data /home/appuser
 
 WORKDIR /app
-COPY --chown=appuser:appuser main.py remediation.py autofix.py ./
+COPY --chown=appuser:appuser main.py remediation.py autofix.py store.py reports.py ./
 
 USER appuser
 

@@ -62,7 +62,11 @@ export function ScanSessionProvider({
   useEffect(() => {
     try {
       const raw = window.sessionStorage.getItem(STORAGE_KEY);
-      if (raw) setSessionState(JSON.parse(raw) as ScanSession);
+      if (raw) {
+        // The patched archive itself lives in memory only, so a restored
+        // session must never claim one is available to verify.
+        setSessionState({ ...(JSON.parse(raw) as ScanSession), hasFixedZip: false });
+      }
     } catch {
       // Corrupt or unavailable storage — start fresh.
     }
@@ -74,7 +78,12 @@ export function ScanSessionProvider({
     if (!hydrated) return;
     try {
       if (session) {
-        window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+        // Upload artifacts are memory-only; do not persist the flag that
+        // advertises them, or a reload would render a dead Verify button.
+        window.sessionStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ ...session, hasFixedZip: false })
+        );
       } else {
         window.sessionStorage.removeItem(STORAGE_KEY);
       }

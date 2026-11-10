@@ -24,9 +24,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+import store
 from autofix import apply_edits, compute_suggested_fix
 from remediation import REMEDIATION_NOTES, get_remediation
+from reports import to_sarif, to_unified_diff
 
 app = FastAPI(title="SAST Scanner API", version="1.0.0")
 
@@ -39,11 +42,21 @@ app.add_middleware(
     ],
     allow_methods=["*"],
     allow_headers=["*"],
+    # Fix and patch responses report counts in headers; a cross-origin browser
+    # can only read headers that are explicitly exposed.
+    expose_headers=["X-Fixes-Applied", "X-Fixes-Unfixed", "Content-Disposition"],
 )
 
 SCAN_DIR = Path(os.environ.get("SCAN_DIR", "/tmp/scans"))
-MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB, compressed
+MAX_UNCOMPRESSED_BYTES = 500 * 1024 * 1024  # 500 MB once extracted
+# Keep in sync with MAX_FILES in frontend/lib/collectFiles.ts.
+MAX_ARCHIVE_FILES = 5_000
+# Reject entries that inflate more than 200x (zip-bomb guard).
+MAX_COMPRESSION_RATIO = 200
 ALLOWED_EXTENSIONS = {".zip"}
+ALLOWED_SCAN_FORMATS = {"json", "sarif"}
+ALLOWED_FIX_FORMATS = {"zip", "patch"}
 
 # Semgrep configs a client may ask for. Must stay in sync with
 # frontend/lib/api.ts — never pass an arbitrary string to `--config`.
@@ -97,6 +110,65 @@ def validate_zip(filename: str, data: bytes) -> None:
         raise HTTPException(status_code=400, detail="File is not a valid zip archive.")
 
 
+def normalize_rel_path(path: str) -> str:
+    """Normalize a Semgrep-reported path to one inside the extracted tree.
+
+    Strips the absolute container prefix up to ``/source/`` and a leading
+    ``./``. Only the ``./`` *sequence* is removed: ``lstrip("./")`` would also
+    eat the leading dot of ``.env`` or ``.github/workflows/ci.yml``.
+    """
+    normalized = path.replace("\\", "/")
+    marker = "/source/"
+    if marker in normalized:
+        normalized = normalized.split(marker, 1)[1]
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized.lstrip("/")
+
+
+def extract_zip(zip_path: Path, extract_dir: Path) -> None:
+    """Extract ``zip_path`` after rejecting bombs and unsafe member paths.
+
+    ``zipfile`` already sanitizes absolute paths and ``..`` components, but it
+    does not bound decompressed size, so a small upload can expand to many
+    gigabytes. Every member is checked before a single byte is written.
+    """
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ARCHIVE_FILES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"Archive contains more than {MAX_ARCHIVE_FILES:,} entries.",
+                )
+            total = sum(member.file_size for member in members)
+            if total > MAX_UNCOMPRESSED_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail="Archive expands beyond the 500 MB extraction limit.",
+                )
+            root = extract_dir.resolve()
+            for member in members:
+                if (
+                    member.file_size > 1024 * 1024
+                    and member.compress_size
+                    and member.file_size / member.compress_size > MAX_COMPRESSION_RATIO
+                ):
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Archive entry has an implausible compression ratio.",
+                    )
+                target = (extract_dir / member.filename).resolve()
+                if not target.is_relative_to(root):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Archive contains an unsafe path.",
+                    )
+            archive.extractall(extract_dir)
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="Corrupt zip archive.") from exc
+
+
 def validate_ruleset(ruleset: str) -> str:
     """Allow only known Semgrep configs; anything else is a client bug."""
     if ruleset not in ALLOWED_RULESETS:
@@ -106,6 +178,17 @@ def validate_ruleset(ruleset: str) -> str:
             detail=f"Unsupported ruleset. Choose one of: {allowed}.",
         )
     return ruleset
+
+
+def validate_format(value: str, allowed: set[str], default: str) -> str:
+    """Allow only known response formats; anything else is a client bug."""
+    fmt = (value or default).strip().lower()
+    if fmt not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format. Choose one of: {', '.join(sorted(allowed))}.",
+        )
+    return fmt
 
 
 def run_semgrep(scan_dir: Path, ruleset: str = DEFAULT_RULESET) -> dict:
@@ -167,12 +250,7 @@ def enrich(raw: dict, file_lines: dict[str, list[str]] | None = None) -> dict:
         # app.py); normalize to the path inside the extracted tree so the
         # dashboard shows clean names and autofix can find the file.
         raw_path = result.get("path", "")
-        path = raw_path
-        for marker in ("/source/", "\\source\\"):
-            if marker in path:
-                path = path.split(marker, 1)[1]
-                break
-        path = path.lstrip("./")
+        path = normalize_rel_path(raw_path)
 
         suggested_fix = None
         fix_lines = (file_lines or {}).get(path)
@@ -267,10 +345,20 @@ def collect_file_lines(root: Path) -> dict[str, list[str]]:
     return out
 
 
-def scan_extracted(extract_dir: Path, ruleset: str = DEFAULT_RULESET) -> dict:
-    """Scan an extracted tree and return the enriched dashboard payload."""
+def scan_extracted(
+    extract_dir: Path,
+    ruleset: str = DEFAULT_RULESET,
+    file_lines: dict[str, list[str]] | None = None,
+) -> dict:
+    """Scan an extracted tree and return the enriched dashboard payload.
+
+    ``file_lines`` lets callers that already read the tree (``/api/fix``)
+    avoid a second pass over every file.
+    """
     raw = run_semgrep(extract_dir, ruleset)
-    return enrich(raw, collect_file_lines(extract_dir))
+    return enrich(
+        raw, file_lines if file_lines is not None else collect_file_lines(extract_dir)
+    )
 
 
 def remediation_title(category: str) -> str:
@@ -298,13 +386,28 @@ def remediation_catalog() -> dict:
 
 
 @app.post("/api/scan")
-async def scan(
+def scan(
     file: UploadFile = File(...),
     ruleset: str = Form(DEFAULT_RULESET),
-) -> dict:
+    label: str = Form(""),
+    format: str = Form("json"),
+) -> Response:
+    """Scan an upload and return the enriched dashboard payload.
+
+    Declared ``def`` on purpose: FastAPI then runs the handler in a worker
+    thread, so the blocking Semgrep subprocess and file I/O never stall the
+    event loop (health checks keep answering while a scan runs).
+
+    Every scan is stored in the history database and compared with the most
+    recent previous scan of the same target (same set of file paths), so the
+    response carries a ``baseline`` of new / fixed / unchanged findings.
+    ``format=sarif`` returns a SARIF 2.1.0 log instead of the dashboard JSON.
+    """
     validate_ruleset(ruleset)
-    data = await file.read()
+    output_format = validate_format(format, ALLOWED_SCAN_FORMATS, "json")
+    data = file.file.read()
     validate_zip(file.filename or "", data)
+    target_label = (label or file.filename or "upload.zip").strip()[:200]
 
     # Unique temp directory per scan; never reuse, never predictable.
     scan_dir = SCAN_DIR / f"scan-{uuid.uuid4().hex}"
@@ -316,22 +419,44 @@ async def scan(
         zip_path.write_bytes(data)
         extract_dir = scan_dir / "source"
         extract_dir.mkdir()
-        try:
-            shutil.unpack_archive(str(zip_path), str(extract_dir), format="zip")
-        except shutil.ReadError as exc:
-            raise HTTPException(status_code=400, detail="Corrupt zip archive.") from exc
+        extract_zip(zip_path, extract_dir)
 
-        # 2. Run the scan and return the enriched payload.
-        return scan_extracted(extract_dir, ruleset)
+        # 2. Read the tree once: autofix and the target fingerprint share it.
+        file_lines = collect_file_lines(extract_dir)
+        payload = scan_extracted(extract_dir, ruleset, file_lines)
+
+        # 3. Compare with the previous scan of this target, then record it.
+        fingerprint = store.fingerprint_of(file_lines)
+        previous = store.latest_for(fingerprint, exclude_scan_id=payload["scan_id"])
+        if previous is not None:
+            store.annotate_baseline(payload, previous)
+        store.save_scan(
+            scan_id=payload["scan_id"],
+            label=target_label,
+            ruleset=ruleset,
+            fingerprint=fingerprint,
+            payload=payload,
+        )
+
+        if output_format == "sarif":
+            return Response(
+                content=json.dumps(to_sarif(payload), indent=2),
+                media_type="application/sarif+json",
+                headers={
+                    "Content-Disposition": 'attachment; filename="scan-report.sarif"'
+                },
+            )
+        return JSONResponse(payload)
     finally:
         # Aggressive cleanup: the temp directory never outlives this request.
         shutil.rmtree(scan_dir, ignore_errors=True)
 
 
 @app.post("/api/fix")
-async def fix(
+def fix(
     file: UploadFile = File(...),
     ruleset: str = Form(DEFAULT_RULESET),
+    format: str = Form("zip"),
 ) -> Response:
     """Re-scan an upload and stream back fixed-source.zip with fixes applied.
 
@@ -339,9 +464,13 @@ async def fix(
     patched source tree plus a `_FIX_REPORT.json` listing which findings were
     auto-fixed and which were left untouched (with reasons). Original uploads
     are never modified.
+
+    ``format=patch`` returns a unified diff (``git apply``-able) instead of
+    the archive, with the applied/unfixed counts in ``X-Fixes-`` headers.
     """
     validate_ruleset(ruleset)
-    data = await file.read()
+    fix_format = validate_format(format, ALLOWED_FIX_FORMATS, "zip")
+    data = file.file.read()
     validate_zip(file.filename or "", data)
 
     scan_dir = SCAN_DIR / f"fix-{uuid.uuid4().hex}"
@@ -352,13 +481,10 @@ async def fix(
         zip_path.write_bytes(data)
         extract_dir = scan_dir / "source"
         extract_dir.mkdir()
-        try:
-            shutil.unpack_archive(str(zip_path), str(extract_dir), format="zip")
-        except shutil.ReadError as exc:
-            raise HTTPException(status_code=400, detail="Corrupt zip archive.") from exc
+        extract_zip(zip_path, extract_dir)
 
-        payload = scan_extracted(extract_dir, ruleset)
         file_lines = collect_file_lines(extract_dir)
+        payload = scan_extracted(extract_dir, ruleset, file_lines)
 
         # Group candidate fixes per file in report order.
         applied: list[dict] = []
@@ -375,7 +501,7 @@ async def fix(
                 sf = finding.get("suggested_fix")
                 rel = finding["file"]
                 if rel not in file_lines:
-                    rel = rel.lstrip("./")
+                    rel = normalize_rel_path(rel)
                 if not sf or rel not in file_lines:
                     unfixed.append({**base, "reason": "No automatic fix available."})
                     continue
@@ -433,13 +559,31 @@ async def fix(
             file_edits[rel] = [(s, e, r) for (s, e), r in merged.items()]
 
         # Apply every edit bottom-up per file (apply_edits sorts internally).
-        for rel, edits in file_edits.items():
+        patched = {
+            rel: "\n".join(apply_edits(file_lines[rel], edits)) + "\n"
+            for rel, edits in file_edits.items()
+        }
+
+        # A patch is applied to the user's own checkout, so it has to be
+        # relative to the repo root (`a/path`, `b/path`) like git writes it.
+        if fix_format == "patch":
+            return Response(
+                content=to_unified_diff(
+                    {rel: "\n".join(file_lines[rel]) + "\n" for rel in patched},
+                    patched,
+                ),
+                media_type="text/x-patch; charset=utf-8",
+                headers={
+                    "Content-Disposition": 'attachment; filename="sast-fixes.patch"',
+                    "X-Fixes-Applied": str(len(applied)),
+                    "X-Fixes-Unfixed": str(len(unfixed)),
+                },
+            )
+
+        for rel, text in patched.items():
             target = extract_dir / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                "\n".join(apply_edits(file_lines[rel], edits)) + "\n",
-                encoding="utf-8",
-            )
+            target.write_text(text, encoding="utf-8")
 
         report = {
             "applied": applied,
@@ -466,6 +610,25 @@ async def fix(
         )
     finally:
         shutil.rmtree(scan_dir, ignore_errors=True)
+
+
+@app.get("/api/scans")
+def scan_history(limit: int = 50) -> dict:
+    """Most recent scans, newest first — metadata only, no payloads."""
+    limit = max(1, min(limit, store.MAX_STORED_SCANS))
+    scans = store.list_scans(limit=limit)
+    return {"count": len(scans), "scans": scans}
+
+
+@app.get("/api/scans/{scan_id}")
+def get_scan(scan_id: str) -> dict:
+    """One stored report, in the exact shape /api/scan returns."""
+    scan = store.get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(
+            status_code=404, detail="Scan not found or no longer stored."
+        )
+    return scan
 
 
 if __name__ == "__main__":

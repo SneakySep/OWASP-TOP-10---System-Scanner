@@ -41,6 +41,21 @@ npm install
 npm run dev
 ```
 
+## Tests
+
+```bash
+cd backend
+pip install fastapi python-multipart semgrep
+pip install -r requirements-dev.txt
+pytest
+```
+
+`backend/tests/` covers the autofix rules, upload validation and the zip-bomb
+guards, the history store and baseline diffing, SARIF and patch rendering, and
+the fixture round-trip. The fixture tests shell out to the `semgrep` CLI and
+skip with an explicit reason when it is not installed; inside the backend
+container they all run.
+
 ## What you can upload
 
 - A **whole folder** — drag & drop it or use "Browse folder"
@@ -132,6 +147,50 @@ The archive contains a `_FIX_REPORT.json`:
 
 The frontend's "Download fixed code" button posts the scanned archive to this
 endpoint, saves the zip, reads the report and shows "Applied X of Y".
+
+## Scan history, baselines, SARIF and patches
+
+Every `/api/scan` is stored in SQLite (`SCAN_DB`, default
+`/tmp/scans/history.db`; `/data/history.db` under Docker, backed by the
+`scan_history` volume) and compared with the most recent scan of the same
+target — the same *set of file paths*, so editing code still compares against
+the previous run instead of looking like a brand-new project. Only the newest
+200 scans are kept.
+
+- `GET /api/scans?limit=50` — newest first, metadata only (label, ruleset,
+  timestamp, severity counts, new/fixed counts).
+- `GET /api/scans/<scan_id>` — one stored report, in the `/api/scan` shape.
+  The History page links to `/scan/<scan_id>`, which renders this payload.
+
+`POST /api/scan` accepts two more optional form fields:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `label` | upload filename | Name shown in the history list |
+| `format` | `json` | `json` for the dashboard payload, `sarif` for a SARIF 2.1.0 log (`scan-report.sarif`) for GitHub code scanning or any other SARIF consumer |
+
+When a previous scan of the same target exists, the payload gains a `baseline`
+and every finding gains `is_new`:
+
+```json
+"baseline": {
+  "previous_scan_id": "…",
+  "previous_created_at": 1731081600.0,
+  "counts": { "new": 3, "fixed": 5, "unchanged": 12 },
+  "new": [{ "rule_id": "…", "file": "app.py", "start_line": 42,
+            "severity": "High" }],
+  "fixed": []
+}
+```
+
+Findings are matched on rule + file + code snippet rather than line number, so
+edits elsewhere in a file do not make every finding look new.
+
+`POST /api/fix` accepts `format=patch` to return `sast-fixes.patch`, a unified
+diff with `a/` and `b/` prefixes that applies with `git apply` from the root of
+the checkout the archive was made from. The applied/unfixed counts come back in
+the `X-Fixes-Applied` and `X-Fixes-Unfixed` headers. `format=zip` (the default)
+is unchanged and also contains `_FIX_REPORT.json`.
 
 ## Auto-fix suggestions (how they work)
 

@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   BookOpen,
   Check,
   ChevronDown,
@@ -12,6 +14,7 @@ import {
   Download,
   ExternalLink,
   FileCode,
+  FileDiff,
   FileJson,
   Loader2,
   Search,
@@ -51,6 +54,27 @@ export type Finding = {
   related_rules: string[];
   remediation: Remediation;
   suggested_fix: SuggestedFix | null;
+  /** Set by the backend when this finding is absent from the previous scan. */
+  is_new?: boolean;
+};
+
+/** One finding as it appeared in a different scan, for diff summaries. */
+export type BaselineFinding = {
+  id: string;
+  rule_id: string;
+  file: string;
+  start_line: number;
+  severity: Finding["severity"];
+};
+
+/** Comparison with the previous scan of the same target. */
+export type Baseline = {
+  previous_scan_id: string;
+  previous_created_at: number;
+  new: BaselineFinding[];
+  fixed: BaselineFinding[];
+  unchanged: number;
+  counts: { new: number; fixed: number; unchanged: number };
 };
 
 export type ScanPayload = {
@@ -59,6 +83,8 @@ export type ScanPayload = {
   severity_counts: Record<"Critical" | "High" | "Medium" | "Low", number>;
   groups: { category: string; title: string; findings: Finding[] }[];
   errors: unknown[];
+  /** Present when an earlier scan of the same target is on record. */
+  baseline?: Baseline | null;
 };
 
 // Traffic-light severity system — solid badges on milk white, tinted on dark.
@@ -278,6 +304,11 @@ function FindingCard({
           <span className={`h-2 w-2 rounded-full ${SEVERITY_DOT[finding.severity]}`} />
           {finding.severity}
         </span>
+        {finding.is_new && (
+          <span className="rounded-full bg-ink px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-bg">
+            New
+          </span>
+        )}
         <code className="text-xs text-muted">{finding.rule_id}</code>
         <span className="text-xs text-muted">
           {shortFile} · lines {finding.start_line}
@@ -407,11 +438,15 @@ function GroupSection({
 export default function ScanResults({
   payload,
   onDownloadFixed,
+  onDownloadPatch,
   fixBusy = false,
+  patchBusy = false,
 }: {
   payload: ScanPayload;
   onDownloadFixed?: () => void;
+  onDownloadPatch?: () => void;
   fixBusy?: boolean;
+  patchBusy?: boolean;
 }) {
   const counts = payload.severity_counts;
   const [severityFilter, setSeverityFilter] = useState<Set<Sev>>(new Set());
@@ -573,6 +608,42 @@ export default function ScanResults({
         })}
       </div>
 
+      {payload.baseline && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-ink bg-surface px-4 py-3 text-sm">
+          <span className="font-semibold">Baseline</span>
+          <span className="text-muted">
+            vs {new Date(payload.baseline.previous_created_at * 1000).toLocaleString()}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-ink" />
+            <span className="font-semibold tabular-nums">
+              {payload.baseline.counts.new}
+            </span>
+            <span className="text-muted">new</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="font-semibold tabular-nums">
+              {payload.baseline.counts.fixed}
+            </span>
+            <span className="text-muted">fixed</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-zinc-400" />
+            <span className="font-semibold tabular-nums">
+              {payload.baseline.counts.unchanged}
+            </span>
+            <span className="text-muted">unchanged</span>
+          </span>
+          <Link
+            href={`/scan/${payload.baseline.previous_scan_id}`}
+            className="ml-auto inline-flex items-center gap-1 text-xs underline decoration-ink/30 underline-offset-2 transition-colors hover:decoration-ink"
+          >
+            Previous report <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+      )}
+
       {/* Triage toolbar: search + severity chips + grouping + JSON export */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative min-w-[220px] flex-1">
@@ -720,21 +791,39 @@ export default function ScanResults({
               </p>
             )}
           </div>
-          {onDownloadFixed && (
-            <button
-              type="button"
-              onClick={onDownloadFixed}
-              disabled={fixBusy}
-              className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {fixBusy ? (
-                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-              ) : (
-                <Download className="h-4 w-4" />
-              )}
-              {fixBusy ? "Preparing fixes…" : "Download fixed code"}
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {onDownloadPatch && (
+              <button
+                type="button"
+                onClick={onDownloadPatch}
+                disabled={patchBusy}
+                title="Download a git-apply-able diff instead of a replacement archive"
+                className="inline-flex items-center gap-2 rounded-lg border border-ink/40 bg-surface px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {patchBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <FileDiff className="h-4 w-4" />
+                )}
+                {patchBusy ? "Preparing patch…" : "Download .patch"}
+              </button>
+            )}
+            {onDownloadFixed && (
+              <button
+                type="button"
+                onClick={onDownloadFixed}
+                disabled={fixBusy}
+                className="inline-flex items-center gap-2 rounded-lg bg-ink px-4 py-2 text-sm font-medium text-bg transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {fixBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {fixBusy ? "Preparing fixes…" : "Download fixed code"}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
